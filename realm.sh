@@ -3,7 +3,7 @@
 #       System  : CentOS 7+ / Debian 8+ / Ubuntu 16+
 #       Author  : NET DOWNLOAD
 #       Script  : Realm All-in-One Manager
-#       Version : 1.3.5 (修复规则删除和显示问题)
+#       Version : 1.3.6 (完全兼容endpoints/services格式)
 #====================================================
 
 # ---------- 颜色 ----------
@@ -79,7 +79,10 @@ manage_firewall() {
 check_port() {
   local port=$1
   # 检查是否在已有规则中
-  grep -q "listen = \"0.0.0.0:${port}\"" "$REALM_CONFIG_PATH" && return 1
+  if grep -q "listen = \"0.0.0.0:${port}\"" "$REALM_CONFIG_PATH" || 
+     grep -q "listen = \"[^]]*:${port}\"" "$REALM_CONFIG_PATH"; then
+    return 1
+  fi
   # 检查系统是否已使用
   if ss -tuln | grep -q ":${port} "; then
     return 1
@@ -218,10 +221,10 @@ add_rule() {
     echo -e "${CYAN}已在防火墙放行端口: ${listen_port}${ENDCOLOR}"
   fi
 
-  # 添加转发规则到配置文件
+  # 添加转发规则到配置文件（兼容endpoints/services）
   cat >>"$REALM_CONFIG_PATH" <<EOF
 
-[[services]]
+[[endpoints]]
 listen = "0.0.0.0:$listen_port"
 remote = "$remote_addr:$remote_port"
 EOF
@@ -239,12 +242,12 @@ delete_rule() {
   check_install || { echo -e "${RED}请先安装 Realm。${ENDCOLOR}"; return; }
   
   # 检查是否有规则
-  if ! grep -q '\[\[services\]\]' "$REALM_CONFIG_PATH"; then
+  if ! grep -q -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH"; then
     echo -e "${RED}无转发规则可删除。${ENDCOLOR}"; return
   fi
 
-  # 获取所有规则块的行号
-  mapfile -t start_lines < <(grep -n '\[\[services\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
+  # 获取所有规则块的行号（兼容endpoints/services）
+  mapfile -t start_lines < <(grep -n -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
   
   if [ ${#start_lines[@]} -eq 0 ]; then
     echo -e "${RED}无转发规则可删除。${ENDCOLOR}"; return
@@ -264,8 +267,11 @@ delete_rule() {
     local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
     local remote=$(echo "$remote_line" | awk -F'"' '{print $2}')
     
-    printf "  %-4s -> 监听端口: %-6s -> 目标地址: %s\n" \
-      "$num" "$listen_port" "$remote"
+    # 提取监听IP（兼容不同格式）
+    local listen_ip=$(echo "$listen_line" | awk -F'[":]' '{print $3}' | tr -d '"')
+    
+    printf "  %-4s -> %-20s -> %-30s\n" \
+      "$num" "${listen_ip}:${listen_port}" "$remote"
   done
   div
 
@@ -313,8 +319,8 @@ status() {
   systemctl status realm --no-pager -l | head -n 10
   div
   
-  # 获取所有规则块的行号
-  mapfile -t start_lines < <(grep -n '\[\[services\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
+  # 获取所有规则块的行号（兼容endpoints/services）
+  mapfile -t start_lines < <(grep -n -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
   
   if [ ${#start_lines[@]} -gt 0 ]; then
     echo -e "${YELLOW}当前转发规则:${ENDCOLOR}"
@@ -329,6 +335,9 @@ status() {
       local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
       local remote=$(echo "$remote_line" | awk -F'"' '{print $2}')
       
+      # 提取监听IP（兼容不同格式）
+      local listen_ip=$(echo "$listen_line" | awk -F'[":]' '{print $3}' | tr -d '"')
+      
       # 检查防火墙状态
       local status="[已放行]"
       if [[ $FIREWALL_TYPE == "firewalld" ]]; then
@@ -337,7 +346,7 @@ status() {
         ufw status | grep -q "$listen_port" || status="[未放行]"
       fi
       
-      printf "  %-18s -> %-30s %s\n" "0.0.0.0:$listen_port" "$remote" "$status"
+      printf "  %-20s -> %-30s %s\n" "${listen_ip}:${listen_port}" "$remote" "$status"
     done
     div
   else
@@ -386,7 +395,7 @@ check_firewall_ports() {
 # ---------- 主菜单 ----------
 main_menu() {
   while true; do
-    echo -e "\n${BLUE}Realm 管理脚本 v1.3.5${ENDCOLOR}"
+    echo -e "\n${BLUE}Realm 管理脚本 v1.3.6${ENDCOLOR}"
     div
     echo "1. 安装/更新 Realm"
     echo "2. 添加转发规则"
