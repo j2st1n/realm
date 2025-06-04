@@ -1,5 +1,5 @@
 # realm
-This is a script for the realm forwarding feature.
+realm转发自用脚本，支持ufw等常见防火墙
 
 基本使用步骤
 # 下载脚本：
