@@ -3,7 +3,7 @@
 ![Bash](https://img.shields.io/badge/Bash-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 
-一个功能强大的Bash脚本，用于在Linux服务器上轻松管理和配置Realm端口转发服务。支持一键安装、规则管理、防火墙自动配置等功能。
+一个Bash脚本，用于在Linux服务器上轻松管理和配置Realm端口转发服务。支持一键安装、规则管理、防火墙自动配置等功能。
 
 ## 🚀 功能特性
 
