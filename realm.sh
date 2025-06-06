@@ -1,9 +1,9 @@
 #!/bin/bash
 #====================================================
 #       System  : CentOS 7+ / Debian 8+ / Ubuntu 16+
-#       Author  : NET DOWNLOAD
+#       Author  : j2st1n
 #       Script  : Realm All-in-One Manager
-#       Version : 1.3.6 (完全兼容endpoints/services格式)
+#       Version : 1.3.6
 #====================================================
 
 # ---------- 颜色 ----------
@@ -64,11 +64,10 @@ manage_firewall() {
       esac
       ;;
     ufw)
-      # 关键优化：UFW放行时不限定协议
       case $action in
-        open) ufw allow ${port} >/dev/null 2>&1 ;;          # 不指定协议
-        close) ufw delete allow ${port} >/dev/null 2>&1     # 删除所有协议规则
-               ufw delete allow ${port}/tcp >/dev/null 2>&1 # 兼容旧版本规则
+        open) ufw allow ${port} >/dev/null 2>&1 ;;
+        close) ufw delete allow ${port} >/dev/null 2>&1
+               ufw delete allow ${port}/tcp >/dev/null 2>&1
                ;;
       esac
       ;;
@@ -78,12 +77,10 @@ manage_firewall() {
 # ---------- 端口检查 ----------
 check_port() {
   local port=$1
-  # 检查是否在已有规则中
   if grep -q "listen = \"0.0.0.0:${port}\"" "$REALM_CONFIG_PATH" || 
      grep -q "listen = \"[^]]*:${port}\"" "$REALM_CONFIG_PATH"; then
     return 1
   fi
-  # 检查系统是否已使用
   if ss -tuln | grep -q ":${port} "; then
     return 1
   fi
@@ -94,7 +91,7 @@ check_port() {
 generate_random_port() {
   local attempts=0
   while (( attempts++ < 20 )); do
-    local port=$((RANDOM % 50000 + 10000)) # 10000-60000
+    local port=$((RANDOM % 50000 + 10000))
     if check_port "$port"; then
       echo "$port"
       return 0
@@ -157,7 +154,6 @@ EOF
   systemctl daemon-reload
   systemctl enable realm >/dev/null 2>&1
 
-  # 初始防火墙检测
   detect_firewall
   
   div
@@ -175,14 +171,12 @@ add_rule() {
   while true; do
     read -p "本地监听端口(默认则随机）: " listen_port
     
-    # 随机端口生成
     if [[ -z "$listen_port" ]]; then
       listen_port=$(generate_random_port)
       [[ -n "$listen_port" ]] && break
       echo -e "${RED}无法生成可用端口，请手动指定${ENDCOLOR}"
     fi
     
-    # 端口验证
     if ! [[ $listen_port =~ ^[0-9]+$ ]]; then
       echo -e "${RED}端口必须是数字${ENDCOLOR}"
       continue
@@ -204,24 +198,20 @@ add_rule() {
   read -p "远程目标地址: " remote_addr
   read -p "远程目标端口: " remote_port
 
-  # 目标端口验证
   if ! [[ $remote_port =~ ^[0-9]+$ ]] || (( remote_port < 1 || remote_port > 65535 )); then
     echo -e "${RED}目标端口无效${ENDCOLOR}"; return
   fi
 
-  # 处理IPv6地址
   if [[ $remote_addr == *":"* ]] && [[ $remote_addr != "["*"]" ]]; then
     remote_addr="[${remote_addr}]"
   fi
 
-  # 添加防火墙规则
   detect_firewall
   if [[ $FIREWALL_TYPE != "none" ]]; then
     manage_firewall open "$listen_port"
     echo -e "${CYAN}已在防火墙放行端口: ${listen_port}${ENDCOLOR}"
   fi
 
-  # 添加转发规则到配置文件（兼容endpoints/services）
   cat >>"$REALM_CONFIG_PATH" <<EOF
 
 [[endpoints]]
@@ -229,7 +219,6 @@ listen = "0.0.0.0:$listen_port"
 remote = "$remote_addr:$remote_port"
 EOF
 
-  # 重启服务
   systemctl restart realm >/dev/null 2>&1
 
   div
@@ -241,33 +230,26 @@ EOF
 delete_rule() {
   check_install || { echo -e "${RED}请先安装 Realm。${ENDCOLOR}"; return; }
   
-  # 检查是否有规则
-  if ! grep -q -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH"; then
+  if ! grep -q -E '\[\[endpoints\]\]' "$REALM_CONFIG_PATH"; then
     echo -e "${RED}无转发规则可删除。${ENDCOLOR}"; return
   fi
 
-  # 获取所有规则块的行号（兼容endpoints/services）
-  mapfile -t start_lines < <(grep -n -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
+  mapfile -t start_lines < <(grep -n '\[\[endpoints\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
   
   if [ ${#start_lines[@]} -eq 0 ]; then
     echo -e "${RED}无转发规则可删除。${ENDCOLOR}"; return
   fi
 
-  # 显示带序号的规则
   echo -e "${YELLOW}当前转发规则:${ENDCOLOR}"
   div
   for i in "${!start_lines[@]}"; do
     local num=$((i+1))
     local start_line=${start_lines[$i]}
-    # 读取整个规则块 (3行)
     local listen_line=$(sed -n "$((start_line+1))p" "$REALM_CONFIG_PATH")
     local remote_line=$(sed -n "$((start_line+2))p" "$REALM_CONFIG_PATH")
     
-    # 提取监听端口和目标地址
     local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
     local remote=$(echo "$remote_line" | awk -F'"' '{print $2}')
-    
-    # 提取监听IP（兼容不同格式）
     local listen_ip=$(echo "$listen_line" | awk -F'[":]' '{print $3}' | tr -d '"')
     
     printf "  %-4s -> %-20s -> %-30s\n" \
@@ -275,7 +257,6 @@ delete_rule() {
   done
   div
 
-  # 选择删除的规则
   while true; do
     read -p "请输入要删除的规则序号 (输入0取消): " choice
     [[ $choice == 0 ]] && return
@@ -285,21 +266,17 @@ delete_rule() {
       local start_line=${start_lines[$index]}
       local end_line=$((start_line + 2))
       
-      # 获取监听端口
       local listen_line=$(sed -n "$((start_line+1))p" "$REALM_CONFIG_PATH")
       local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
       
-      # 删除防火墙规则
       detect_firewall
       if [[ $FIREWALL_TYPE != "none" ]]; then
         manage_firewall close "$listen_port"
         echo -e "${CYAN}已关闭防火墙端口: $listen_port${ENDCOLOR}"
       fi
       
-      # 删除完整配置块 (3行)
       sed -i "${start_line},${end_line}d" "$REALM_CONFIG_PATH"
       
-      # 重启服务
       systemctl restart realm >/dev/null 2>&1
       echo -e "${GREEN}规则删除成功！${ENDCOLOR}"
       return
@@ -313,32 +290,25 @@ delete_rule() {
 status() {
   check_install || { echo -e "${RED}请先安装 Realm。${ENDCOLOR}"; return; }
   
-  # 服务状态
   echo -e "${YELLOW}Realm 服务状态:${ENDCOLOR}"
   div
   systemctl status realm --no-pager -l | head -n 10
   div
   
-  # 获取所有规则块的行号（兼容endpoints/services）
-  mapfile -t start_lines < <(grep -n -E '\[\[(endpoints|services)\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
+  mapfile -t start_lines < <(grep -n '\[\[endpoints\]\]' "$REALM_CONFIG_PATH" | cut -d: -f1)
   
   if [ ${#start_lines[@]} -gt 0 ]; then
     echo -e "${YELLOW}当前转发规则:${ENDCOLOR}"
     div
     for i in "${!start_lines[@]}"; do
       local start_line=${start_lines[$i]}
-      # 读取整个规则块 (3行)
       local listen_line=$(sed -n "$((start_line+1))p" "$REALM_CONFIG_PATH")
       local remote_line=$(sed -n "$((start_line+2))p" "$REALM_CONFIG_PATH")
       
-      # 提取监听端口和目标地址
       local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
       local remote=$(echo "$remote_line" | awk -F'"' '{print $2}')
-      
-      # 提取监听IP（兼容不同格式）
       local listen_ip=$(echo "$listen_line" | awk -F'[":]' '{print $3}' | tr -d '"')
       
-      # 检查防火墙状态
       local status="[已放行]"
       if [[ $FIREWALL_TYPE == "firewalld" ]]; then
         firewall-cmd --query-port="$listen_port/tcp" >/dev/null 2>&1 || status="[未放行]"
