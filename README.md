@@ -126,7 +126,7 @@ A: 是的，脚本自动识别IPv6地址并添加正确的格式（用方括号�
 
 ## 📜 许可证
 
-本项目采用 [MIT License](LICENSE)
+本项目采用 [GPL-3.0 license](LICENSE)
 
 ## 🙏 致谢
 
