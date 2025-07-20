@@ -3,7 +3,7 @@
 #       System  : CentOS 7+ / Debian 8+ / Ubuntu 16+
 #       Author  : j2st1n
 #       Script  : Realm All-in-One Manager
-#       Version : 1.3.6
+#       Version : 1.3.7
 #====================================================
 
 # ---------- 颜色 ----------
@@ -57,18 +57,20 @@ manage_firewall() {
   case $FIREWALL_TYPE in
     firewalld)
       case $action in
-        open) firewall-cmd --permanent --add-port=${port}/tcp >/dev/null 2>&1
-              firewall-cmd --reload >/dev/null 2>&1 ;;
-        close) firewall-cmd --permanent --remove-port=${port}/tcp >/dev/null 2>&1
-               firewall-cmd --reload >/dev/null 2>&1 ;;
+        open)
+          firewall-cmd --add-port=${port}/tcp >/dev/null 2>&1
+          firewall-cmd --permanent --add-port=${port}/tcp >/dev/null 2>&1
+          ;;
+        close)
+          firewall-cmd --remove-port=${port}/tcp >/dev/null 2>&1
+          firewall-cmd --permanent --remove-port=${port}/tcp >/dev/null 2>&1
+          ;;
       esac
       ;;
     ufw)
       case $action in
-        open) ufw allow ${port} >/dev/null 2>&1 ;;
-        close) ufw delete allow ${port} >/dev/null 2>&1
-               ufw delete allow ${port}/tcp >/dev/null 2>&1
-               ;;
+        open) ufw allow ${port}/tcp >/dev/null 2>&1 ;;
+        close) ufw delete allow ${port}/tcp >/dev/null 2>&1 ;;
       esac
       ;;
   esac
@@ -146,6 +148,7 @@ Type=simple
 User=root
 Restart=always
 ExecStart=${REALM_BIN_PATH} -c ${REALM_CONFIG_PATH}
+ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]
 WantedBy=multi-user.target
@@ -219,7 +222,7 @@ listen = "0.0.0.0:$listen_port"
 remote = "$remote_addr:$remote_port"
 EOF
 
-  systemctl restart realm >/dev/null 2>&1
+  systemctl reload realm >/dev/null 2>&1
 
   div
   echo -e "${GREEN}规则添加成功！${ENDCOLOR}"
@@ -267,17 +270,18 @@ delete_rule() {
       local end_line=$((start_line + 2))
       
       local listen_line=$(sed -n "$((start_line+1))p" "$REALM_CONFIG_PATH")
-      local listen_port=$(echo "$listen_line" | awk -F'[":]' '{print $4}')
+      # 使用更健壮的 grep 命令替换掉原来的 awk 命令
+      local listen_port=$(echo "$listen_line" | grep -oP ':\K[0-9]+(?=")')
       
       detect_firewall
-      if [[ $FIREWALL_TYPE != "none" ]]; then
+      if [[ $FIREWALL_TYPE != "none" ]] && [[ -n "$listen_port" ]]; then
         manage_firewall close "$listen_port"
         echo -e "${CYAN}已关闭防火墙端口: $listen_port${ENDCOLOR}"
       fi
       
       sed -i "${start_line},${end_line}d" "$REALM_CONFIG_PATH"
       
-      systemctl restart realm >/dev/null 2>&1
+      systemctl reload realm >/dev/null 2>&1
       echo -e "${GREEN}规则删除成功！${ENDCOLOR}"
       return
     else
